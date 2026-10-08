@@ -157,6 +157,10 @@ def callback() -> str:
     body = request.get_data(as_text=True)
     # 患者の発言が含まれるため、本文はログに出力しない。
 
+    if not signature:
+        logger.warning("Missing LINE signature.")
+        abort(400)
+
     try:
         handler.handle(body, signature)
     except InvalidSignatureError:
