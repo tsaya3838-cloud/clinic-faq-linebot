@@ -1,6 +1,9 @@
 import logging
 import os
 import re
+from datetime import datetime
+from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import requests
 from flask import Flask, abort, request
@@ -73,6 +76,11 @@ EMERGENCY_MESSAGE = (
     "ご自身で動けない場合は、周りの方に助けを求めてください。"
 )
 
+# Dify に設定しているシステムプロンプトの控え。ログ確認用に読み込む。
+SYSTEM_PROMPT_TEMPLATE = (Path(__file__).parent / "dify" / "system_prompt.md").read_text(
+    encoding="utf-8"
+)
+
 # 利用者ごとの Dify 会話 ID（文脈の継続用）。試作のためメモリ保持で、再起動すると消える。
 conversation_ids: dict[str, str] = {}
 
@@ -87,14 +95,25 @@ def to_plain_text(text: str) -> str:
     return re.sub(r"^[ \t]*[*-][ \t]+", "・", text, flags=re.MULTILINE)
 
 
+def current_jst_datetime() -> str:
+    now = datetime.now(ZoneInfo("Asia/Tokyo"))
+    weekday = "月火水木金土日"[now.weekday()]
+    return now.strftime(f"%Y年%m月%d日（{weekday}曜日） %H:%M")
+
+
 def call_dify_chat_api(user_text: str, user_id: str) -> str:
     headers = {
         "Authorization": f"Bearer {DIFY_API_KEY}",
         "Content-Type": "application/json",
     }
+    # inputs は同一会話内で更新されないため、時刻は毎回 query の先頭に付ける。
+    time_line = f"【現在の日本時間：{current_jst_datetime()}】"
+    # 確認用: システムプロンプトと query 先頭の時刻行。利用者の発言は含まない。
+    logger.info("System prompt:\n%s", SYSTEM_PROMPT_TEMPLATE)
+    logger.info("Time line prepended to query: %s", time_line)
     payload = {
         "inputs": {},
-        "query": user_text,
+        "query": f"{time_line}\n{user_text}",
         "response_mode": "blocking",
         "conversation_id": conversation_ids.get(user_id, ""),
         "user": user_id,
